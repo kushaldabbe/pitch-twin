@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://pitchtwin.local/schemas/pitchtwin.frame.v1.json",
+  "title": "PitchTwin per-frame data contract v1",
+  "description": "The only coupling between the Python CV producer and the JS viewer. All x,z are pitch meters (homography-lifted); y is height in meters; origin is the center spot.",
+  "type": "object",
+  "required": ["schema", "source", "pitch", "frames"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "type": "string",
+      "const": "pitchtwin.frame/v1",
+      "description": "Data contract version identifier."
+    },
+    "source": {
+      "type": "object",
+      "required": ["video", "fps", "total_frames"],
+      "additionalProperties": false,
+      "properties": {
+        "video": { "type": "string", "minLength": 1 },
+        "fps": { "type": "number", "exclusiveMinimum": 0 },
+        "total_frames": { "type": "integer", "minimum": 0 },
+        "clip_name": { "type": "string" }
+      }
+    },
+    "pitch": {
+      "type": "object",
+      "required": ["length_m", "width_m"],
+      "additionalProperties": false,
+      "properties": {
+        "length_m": { "type": "number", "exclusiveMinimum": 0 },
+        "width_m": { "type": "number", "exclusiveMinimum": 0 }
+      }
+    },
+    "frames": {
+      "type": "array",
+      "items": { "$ref": "#/$defs/frame" }
+    }
+  },
+  "$defs": {
+    "frame": {
+      "type": "object",
+      "required": ["frame", "t", "players"],
+      "additionalProperties": false,
+      "properties": {
+        "frame": { "type": "integer", "minimum": 0 },
+        "t": { "type": "number", "minimum": 0, "description": "Time in seconds." },
+        "ball": {
+          "oneOf": [{ "$ref": "#/$defs/ball" }, { "type": "null" }]
+        },
+        "players": {
+          "type": "array",
+          "items": { "$ref": "#/$defs/player" }
+        },
+        "possession": { "enum": ["A", "B", null] },
+        "score": {
+          "type": "object",
+          "required": ["A", "B"],
+          "additionalProperties": false,
+          "properties": {
+            "A": { "type": "integer", "minimum": 0 },
+            "B": { "type": "integer", "minimum": 0 }
+          }
+        }
+      }
+    },
+    "ball": {
+      "type": "object",
+      "required": ["x", "z", "y", "tracked"],
+      "additionalProperties": false,
+      "properties": {
+        "x": { "type": "number" },
+        "z": { "type": "number" },
+        "y": { "type": "number", "minimum": 0, "description": "Height above pitch plane (meters). 0 until Stage 3." },
+        "vel": {
+          "type": "array",
+          "items": { "type": "number" },
+          "minItems": 3,
+          "maxItems": 3
+        },
+        "conf": { "type": "number", "minimum": 0, "maximum": 1 },
+        "tracked": { "type": "boolean" }
+      }
+    },
+    "player": {
+      "type": "object",
+      "required": ["id", "team", "role", "x", "z", "y", "facing", "speed", "height_est"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "type": "integer", "minimum": 0, "description": "Stable BoT-SORT track id." },
+        "team": { "enum": ["A", "B", null], "description": "null for referees (neutral)." },
+        "role": { "enum": ["player", "gk", "referee"] },
+        "x": { "type": "number", "description": "Along touchline (meters), origin center." },
+        "z": { "type": "number", "description": "Along goal line (meters), origin center." },
+        "y": { "type": "number", "minimum": 0, "description": "Height (meters); 0 = ground." },
+        "facing": { "type": "number", "description": "Heading in radians." },
+        "speed": { "type": "number", "minimum": 0, "description": "Speed in m/s." },
+        "height_est": { "type": "number", "minimum": 0.5, "maximum": 2.5 },
+        "jersey": { "$ref": "#/$defs/jersey" },
+        "pose2d": {
+          "type": "array",
+          "description": "Optional image-normalized keypoints [ [x,y], ... ] in [0,1]. Stage 2+.",
+          "items": {
+            "type": "array",
+            "items": { "type": "number", "minimum": 0, "maximum": 1 },
+            "minItems": 2,
+            "maxItems": 2
+          }
+        }
+      }
+    },
+    "jersey": {
+      "type": "object",
+      "required": ["number", "conf"],
+      "additionalProperties": false,
+      "properties": {
+        "number": {
+          "oneOf": [{ "type": "integer", "minimum": 0, "maximum": 99 }, { "type": "null" }]
+        },
+        "conf": { "type": "number", "minimum": 0, "maximum": 1 }
+      }
+    }
+  }
+}
