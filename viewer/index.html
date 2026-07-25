@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>PitchTwin — 3D Match Replay</title>
+    <style>
+      :root {
+        --bar-bg: rgba(13, 17, 23, 0.82);
+        --accent: #3b82f6;
+        --text: #e6edf3;
+      }
+      * { box-sizing: border-box; }
+      html, body { margin: 0; height: 100%; background: #0b0f14; color: var(--text);
+        font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+      #app { position: fixed; inset: 0; }
+      canvas { display: block; }
+
+      #bar {
+        position: fixed; left: 50%; bottom: 18px; transform: translateX(-50%);
+        display: flex; align-items: center; gap: 14px; padding: 10px 16px;
+        background: var(--bar-bg); backdrop-filter: blur(10px);
+        border: 1px solid rgba(255,255,255,0.08); border-radius: 14px;
+        box-shadow: 0 10px 30px rgba(0,0,0,0.45); z-index: 10;
+        font-size: 13px; user-select: none;
+      }
+      #bar button {
+        background: var(--accent); color: white; border: none; border-radius: 8px;
+        padding: 8px 14px; font-weight: 600; cursor: pointer; font-size: 13px;
+      }
+      #bar button.ghost { background: rgba(255,255,255,0.08); }
+      #bar button:hover { filter: brightness(1.1); }
+      #bar input[type=range] { width: 320px; accent-color: var(--accent); }
+      #bar select, #bar .time {
+        background: rgba(255,255,255,0.06); color: var(--text); border: 1px solid rgba(255,255,255,0.1);
+        border-radius: 6px; padding: 5px 8px; font-size: 12px;
+      }
+      #bar .time { font-variant-numeric: tabular-nums; min-width: 92px; text-align: center; }
+
+      #legend {
+        position: fixed; left: 16px; top: 16px; padding: 10px 12px; z-index: 10;
+        background: var(--bar-bg); border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px; font-size: 12px; line-height: 1.7;
+      }
+      #legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
+        margin-right: 6px; vertical-align: middle; }
+      #status {
+        position: fixed; right: 16px; top: 16px; padding: 8px 12px; z-index: 10;
+        background: var(--bar-bg); border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 10px; font-size: 12px; opacity: 0; transition: opacity 0.3s;
+      }
+      #status.show { opacity: 1; }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="legend">
+      <div><span class="sw" style="background:#e53e3e"></span>Team A</div>
+      <div><span class="sw" style="background:#3182ce"></span>Team B</div>
+      <div><span class="sw" style="background:#f6e05e"></span>Goalkeeper</div>
+      <div><span class="sw" style="background:#ed8936"></span>Referee</div>
+      <div><span class="sw" style="background:#ffffff"></span>Ball</div>
+    </div>
+
+    <div id="status">drag to orbit · switch camera below</div>
+
+    <div id="bar">
+      <button id="play">Play</button>
+      <input id="scrub" type="range" min="0" max="1000" value="0" />
+      <span class="time" id="time">0.0s</span>
+      <select id="speed">
+        <option value="0.25">0.25x</option>
+        <option value="0.5">0.5x</option>
+        <option value="1" selected>1x</option>
+        <option value="2">2x</option>
+        <option value="4">4x</option>
+      </select>
+      <select id="camera">
+        <option value="tactical">Tactical</option>
+        <option value="orbit">Orbit</option>
+      </select>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

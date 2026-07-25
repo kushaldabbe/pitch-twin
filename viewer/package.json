@@ -1,0 +1,21 @@
+{
+  "name": "pitchtwin-viewer",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "node scripts/copy-sample.mjs && vite build",
+    "preview": "vite preview",
+    "update-sample": "node scripts/copy-sample.mjs"
+  },
+  "dependencies": {
+    "three": "^0.169.0"
+  },
+  "devDependencies": {
+    "vite": "^5.4.0"
+  },
+  "allowScripts": {
+    "esbuild@0.21.5": true
+  }
+}
