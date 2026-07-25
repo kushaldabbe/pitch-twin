@@ -23,7 +23,7 @@ viewer/public/sample.json
 node_modules/
 
 # --- Data (large / regeneratable, never committed) ---
-data/
+/data/
 
 # --- ML artifacts ---
 runs/
