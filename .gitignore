@@ -1,0 +1,49 @@
+# --- Python ---
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# --- Virtual envs ---
+.venv/
+venv/
+env/
+
+# --- Node / viewer ---
+viewer/node_modules/
+viewer/dist/
+viewer/.vite/
+viewer/public/sample.json
+node_modules/
+
+# --- Data (large / regeneratable, never committed) ---
+data/
+
+# --- ML artifacts ---
+runs/
+weights/
+wandb/
+mlruns/
+*.pt
+*.pth
+*.onnx
+*.engine
+*.trt
+
+# --- Secrets / env (never committed) ---
+.env*
+
+# --- Logs / scratch ---
+*.log
+
+# --- Editors / OS ---
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db

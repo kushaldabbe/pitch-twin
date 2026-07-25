@@ -1,0 +1,23 @@
+# Normalize line endings across platforms; commit LF, checkout as-needed.
+* text=auto
+
+# Source files: enforce LF for cross-platform scripts.
+*.sh   text eol=lf
+*.mjs  text eol=lf
+*.js   text eol=lf
+*.json text eol=lf
+*.py   text eol=lf
+
+# Windows-native scripts keep CRLF.
+*.ps1  text eol=crlf
+*.cmd  text eol=crlf
+*.bat  text eol=crlf
+
+# Binary assets (never normalize).
+*.png  binary
+*.jpg  binary
+*.jpeg binary
+*.mp4  binary
+*.avi  binary
+*.pt   binary
+*.onnx binary
