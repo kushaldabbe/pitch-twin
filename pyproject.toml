@@ -27,6 +27,8 @@ cv = [
     "supervision>=0.21",
     "tqdm>=4.66",
     "pillow>=10.0",
+    "torchvision>=0.18",
+    "lap>=0.5.12",
 ]
 dev = [
     "pytest>=8.0",
@@ -42,6 +44,7 @@ packages = ["src/pitchtwin"]
 
 [tool.hatch.build.targets.wheel.force-include]
 "schemas/pitchtwin.frame.v1.json" = "pitchtwin/contract/pitchtwin.frame.v1.json"
+"src/pitchtwin/tracking/botsort.yaml" = "pitchtwin/tracking/botsort.yaml"
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

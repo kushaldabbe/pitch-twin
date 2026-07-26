@@ -1,0 +1,22 @@
+# PitchTwin BoT-SORT config — re-derived for single-camera broadcast football.
+# Rationale (not copied): broadcast footage has frequent camera pans/zooms, so
+# camera-motion compensation (gmc_method) is essential; long occlusions when
+# players leave/re-enter the frame need a large track_buffer.
+tracker_type: botsort
+track_high_thresh: 0.4     # high-confidence detections used to confirm tracks
+track_low_thresh: 0.2      # low threshold for matching weaker detections
+new_track_thresh: 0.5      # suppress spurious tracks from false positives
+track_buffer: 150          # ~6 s @ 25 fps — keep tracks through pans/occlusions
+match_thresh: 0.85         # IoU gating for data association
+fuse_score: true           # fuse detection confidence into the matching cost
+
+# Proximity / appearance gating (used when with_reid is on).
+proximity_thresh: 0.5
+appearance_thresh: 0.25
+
+# Camera motion compensation — the load-bearing setting for broadcast pans.
+gmc_method: sparseOptFlow
+
+# ReID is handled by our own appearance layer (pitchtwin.tracking.reid).
+with_reid: false
+model:
