@@ -33,7 +33,7 @@ async function main() {
     0.1,
     1000,
   );
-  camera.position.set(0, 70, 60);
+  camera.position.set(0, 30, 64);
 
   const rig = new CameraRig(camera, renderer.domElement);
   const avatars = new AvatarSystem(scene);
@@ -62,7 +62,12 @@ async function main() {
   speedSel.addEventListener("change", () => replay.setSpeed(Number(speedSel.value)));
   camSel.addEventListener("change", () => {
     rig.setMode(camSel.value);
-    flashStatus(camSel.value === "tactical" ? "tactical camera" : "drag to orbit · scroll to zoom");
+    const msg = {
+      broadcast: "broadcast camera",
+      tactical: "tactical (coach) camera",
+      orbit: "drag to orbit · scroll to zoom",
+    }[camSel.value];
+    flashStatus(msg);
   });
 
   window.addEventListener("resize", () => {

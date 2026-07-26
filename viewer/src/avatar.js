@@ -15,6 +15,9 @@ const colorFor = (p) => {
   return p.team === "A" ? COLORS.A : COLORS.B;
 };
 
+const TRAIL_LEN = 70; // ~1 s of render-rate samples; the player's recent path
+const TRAIL_Y = 0.12; // just above the pitch so the line isn't z-fighting
+
 const labelTextureCache = new Map();
 function labelTexture(text) {
   if (labelTextureCache.has(text)) return labelTextureCache.get(text);
@@ -22,7 +25,6 @@ function labelTexture(text) {
   c.width = 128;
   c.height = 128;
   const ctx = c.getContext("2d");
-  ctx.clearRect(0, 0, 128, 128);
   ctx.fillStyle = "rgba(0,0,0,0.55)";
   ctx.beginPath();
   ctx.arc(64, 64, 40, 0, Math.PI * 2);
@@ -38,22 +40,32 @@ function labelTexture(text) {
 }
 
 /**
- * Stage-1 player representation: a team-colored capsule with a facing "nose"
- * and a floating jersey-number label. Ball is a small white sphere.
+ * Stage-1 player representation: a team-colored capsule with a facing "nose",
+ * a floating jersey label, a soft ground shadow, and a fading motion trail.
+ * Ball is a small white sphere.
  */
 export class AvatarSystem {
   constructor(scene) {
     this.scene = scene;
-    this.markers = new Map(); // id -> Group
+    this.markers = new Map(); // id -> handle
+    this.trails = new Map(); // id -> { line, positions: number[][], color }
     this.ball = this._makeBall();
+    this._lastFrame = -1;
     scene.add(this.ball);
   }
 
   _makeBall() {
     const mesh = new THREE.Mesh(
-      new THREE.SphereGeometry(0.12, 16, 16),
-      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.4, emissive: 0x222222 }),
+      new THREE.SphereGeometry(0.14, 18, 18),
+      new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.35, emissive: 0x333333 }),
     );
+    const shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.35, 18),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.25, depthWrite: false }),
+    );
+    shadow.rotation.x = -Math.PI / 2;
+    mesh.add(shadow);
+    shadow.position.set(0, -0.14, 0);
     mesh.visible = false;
     return mesh;
   }
@@ -68,12 +80,11 @@ export class AvatarSystem {
     body.name = "body";
     group.add(body);
 
-    // Facing "nose": a small cone pointing along +X (we rotate the group by -facing).
     const nose = new THREE.Mesh(
       new THREE.ConeGeometry(0.22, 0.7, 12),
       new THREE.MeshStandardMaterial({ color: 0xffffff, roughness: 0.6 }),
     );
-    nose.rotation.z = -Math.PI / 2; // point along +X
+    nose.rotation.z = -Math.PI / 2;
     nose.position.set(0.0, 1.4, 0);
     nose.name = "nose";
     group.add(nose);
@@ -85,11 +96,52 @@ export class AvatarSystem {
     label.name = "label";
     group.add(label);
 
+    // Ground shadow (flat disc just above the pitch).
+    const shadow = new THREE.Mesh(
+      new THREE.CircleGeometry(0.75, 22),
+      new THREE.MeshBasicMaterial({ color: 0x000000, transparent: true, opacity: 0.3, depthWrite: false }),
+    );
+    shadow.rotation.x = -Math.PI / 2;
+    shadow.position.y = 0.02;
+    group.add(shadow);
+
     this.scene.add(group);
-    return { group, body, nose, label, currentNumber: null, currentColor: null };
+    return { group, body, nose, label, shadow, currentNumber: null, currentColor: null };
+  }
+
+  _trailFor(id, color) {
+    let t = this.trails.get(id);
+    if (!t) {
+      const geom = new THREE.BufferGeometry();
+      geom.setAttribute("position", new THREE.Float32BufferAttribute(new Float32Array(TRAIL_LEN * 3), 3));
+      const mat = new THREE.LineBasicMaterial({ color, transparent: true, opacity: 0.5, depthWrite: false });
+      const line = new THREE.Line(geom, mat);
+      line.frustumCulled = false;
+      this.scene.add(line);
+      t = { line, positions: [], color };
+      this.trails.set(id, t);
+    } else if (t.color !== color) {
+      t.line.material.color.setHex(color);
+      t.color = color;
+    }
+    return t;
+  }
+
+  _clearTrails() {
+    for (const t of this.trails.values()) {
+      t.positions.length = 0;
+      t.line.geometry.setDrawRange(0, 0);
+    }
   }
 
   update(frameState) {
+    // Clear trails on a seek (backward or large forward jump).
+    const f = frameState.frame;
+    if (this._lastFrame >= 0 && (f < this._lastFrame || f > this._lastFrame + 3)) {
+      this._clearTrails();
+    }
+    this._lastFrame = f;
+
     const seen = new Set();
 
     for (const p of frameState.players) {
@@ -102,10 +154,8 @@ export class AvatarSystem {
 
       const h = p.height_est ?? 1.78;
       m.group.position.set(p.x, h / 2, p.z);
-      // facing = atan2(dz, dx) in pitch coords; rotate group about Y to point the +X nose.
       m.group.rotation.y = -(p.facing ?? 0);
       m.body.scale.y = h / 1.78;
-      m.body.position.y = 0;
 
       const col = colorFor(p);
       if (m.currentColor !== col) {
@@ -122,20 +172,40 @@ export class AvatarSystem {
         m.currentNumber = labelKey;
       }
       m.group.visible = true;
+
+      // Append to trail.
+      const trail = this._trailFor(p.id, col);
+      trail.positions.push([p.x, TRAIL_Y, p.z]);
+      if (trail.positions.length > TRAIL_LEN) trail.positions.shift();
+      this._writeTrail(trail);
     }
 
-    // Hide markers not present in this frame.
     for (const [id, m] of this.markers) {
       if (!seen.has(id)) m.group.visible = false;
+    }
+    // Hide trails for ids not visible this frame (keep their buffer for resume).
+    for (const [id, t] of this.trails) {
+      t.line.visible = seen.has(id);
     }
 
     // Ball.
     const b = frameState.ball;
     if (b && b.tracked !== false) {
-      this.ball.position.set(b.x, (b.y ?? 0) + 0.12, b.z);
+      this.ball.position.set(b.x, (b.y ?? 0) + 0.14, b.z);
       this.ball.visible = true;
     } else {
       this.ball.visible = false;
     }
+  }
+
+  _writeTrail(trail) {
+    const arr = trail.positions;
+    const attr = trail.line.geometry.getAttribute("position");
+    for (let i = 0; i < arr.length; i++) {
+      attr.setXYZ(i, arr[i][0], arr[i][1], arr[i][2]);
+    }
+    attr.needsUpdate = true;
+    trail.line.geometry.setDrawRange(0, arr.length);
+    trail.line.geometry.computeBoundingSphere();
   }
 }
