@@ -1,9 +1,12 @@
-import { copyFileSync, mkdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const src = resolve(__dirname, "../../data/sample_clip/synthetic.json");
+// Prefer the real CV pipeline output; fall back to the synthetic clip.
+const realSrc = resolve(__dirname, "../../data/sample_clip/real.json");
+const synthSrc = resolve(__dirname, "../../data/sample_clip/synthetic.json");
+const src = existsSync(realSrc) ? realSrc : synthSrc;
 const dst = resolve(__dirname, "../public/sample.json");
 
 mkdirSync(dirname(dst), { recursive: true });
