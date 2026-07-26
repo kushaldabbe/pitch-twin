@@ -39,6 +39,17 @@ def build_player(
     }
 
 
+def build_ball(x: float, z: float, conf: float, tracked: bool = True) -> dict[str, Any]:
+    """A ball record. Height stays 0 until Stage 3 (projectile fit)."""
+    return {
+        "x": round(float(x), 3),
+        "z": round(float(z), 3),
+        "y": 0.0,
+        "conf": round(float(conf), 3),
+        "tracked": bool(tracked),
+    }
+
+
 def write(
     path: str | Path,
     *,

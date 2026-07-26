@@ -15,6 +15,37 @@ def _wrap(a: float) -> float:
     return math.atan2(math.sin(a), math.cos(a))
 
 
+def _centered_moving_avg(a: np.ndarray, k: int) -> np.ndarray:
+    """Centered moving average with edge clamping (``k`` is forced odd)."""
+    if k % 2 == 0:
+        k -= 1
+    pad = k // 2
+    ap = np.pad(a, (pad, pad), mode="edge")
+    return np.convolve(ap, np.ones(k) / k, mode="valid")
+
+
+def smooth_trajectory(
+    observations: list[tuple[int, float, float]], window: int = 5
+) -> dict[int, tuple[float, float]]:
+    """Centered moving-average smoothing of a track's ``(frame, x, z)`` series.
+
+    Returns ``{frame: (x_smooth, z_smooth)}``. Reduces detection/keypoint jitter
+    before kinematics and before emitting positions to the viewer.
+    """
+    obs = sorted(observations, key=lambda o: o[0])
+    n = len(obs)
+    if n == 0:
+        return {}
+    frames = [o[0] for o in obs]
+    x = np.array([o[1] for o in obs], dtype=np.float64)
+    z = np.array([o[2] for o in obs], dtype=np.float64)
+    k = max(1, min(window, n))
+    if k >= 3:
+        x = _centered_moving_avg(x, k)
+        z = _centered_moving_avg(z, k)
+    return {frames[i]: (float(x[i]), float(z[i])) for i in range(n)}
+
+
 def compute_kinematics(
     observations: list[tuple[int, float, float]],
     fps: float,
