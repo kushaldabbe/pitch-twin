@@ -22,10 +22,12 @@ from pitchtwin.export.writer import build_ball, build_player
 from pitchtwin.export.writer import write as write_v1
 from pitchtwin.teams.classify import TeamClassifier
 from pitchtwin.tracking.scene import SceneSegmentor
+from pitchtwin.tracking.stitch import majority_team, stitch_by_position
 from pitchtwin.tracking.tracker import Tracker
 
 DEFAULT_LENGTH_M = 105.0
 DEFAULT_WIDTH_M = 68.0
+REID_SAMPLE_INTERVAL = 15  # embed crops every N frames per track
 
 
 def _in_bounds(x: float, z: float, length_m: float, width_m: float, margin: float = 5.0) -> bool:
@@ -54,16 +56,13 @@ def run(
     tracker = Tracker(detector_weights=DET_WEIGHTS, device=device)
     ball_det = Detector(weights=DET_WEIGHTS, device=device, conf=0.15)
     kp_det = PitchKeypointDetector(weights=KP_WEIGHTS, device=device)
-    # Per-frame homography + light smoothing: tracks broadcast camera pans
-    # without the lag a heavy EMA would introduce.
     cal = Calibrator(smoothing_alpha=0.7)
     seg = SceneSegmentor()
     teams = TeamClassifier()
 
-    # Per-frame raw records.
-    frame_meta: list[tuple[int, float]] = []  # (idx, t)
-    items_per_frame: list[list[tuple[int, int, float]]] = []  # (id, cls, conf)
-    raw_pitch: list[dict[int, tuple[float, float]]] = []  # tid -> raw (x,z)
+    frame_meta: list[tuple[int, float]] = []
+    items_per_frame: list[list[tuple[int, int, float]]] = []
+    raw_pitch: list[dict[int, tuple[float, float]]] = []
     ball_per_frame: list[dict | None] = []
     trajectories: dict[int, list[tuple[int, float, float]]] = defaultdict(list)
 
@@ -79,7 +78,6 @@ def run(
         if idx == 0 or is_cut or (keypoint_interval > 1 and idx % keypoint_interval == 0):
             cal.update(kp_det.detect(frame))
 
-        # Players
         tr = tracker.track_frame(frame, persist=True)
         pitch_now: dict[int, tuple[float, float]] = {}
         items: list[tuple[int, int, float]] = []
@@ -96,7 +94,11 @@ def run(
                         pitch_now[tid] = (x, z)
                         trajectories[tid].append((idx, x, z))
 
-        # Ball (dedicated detector pass, class 0 only)
+        # Sample appearance embeddings for ReID stitching.
+        # (Disabled: ImageNet-pretrained backbones are not discriminative for
+        #  player identity. Stitching uses team + position continuity instead.)
+
+        # Ball
         ball_rec: dict | None = None
         bdets = ball_det.detect(frame, classes=(0,))
         if cal.H is not None and bdets.n > 0:
@@ -116,7 +118,7 @@ def run(
         idx += 1
     cap.release()
 
-    # Smooth trajectories -> less jitter; recompute kinematics on smoothed positions.
+    # Smooth per-fragment trajectories + kinematics.
     smoothed: dict[int, dict[int, tuple[float, float]]] = {
         tid: smooth_trajectory(traj, window=smooth_window) for tid, traj in trajectories.items()
     }
@@ -124,8 +126,17 @@ def run(
         tid: compute_kinematics([(f, x, z) for f, (x, z) in smoothed[tid].items()], fps)
         for tid in trajectories
     }
-
     teams.fit()
+
+    # ReID stitching: merge fragmented track ids into per-player identities
+    # using team agreement + pitch-position continuity (appearance ReID is not
+    # discriminative enough with ImageNet-pretrained backbones).
+    track_frames = {tid: [f for f, _, _ in traj] for tid, traj in trajectories.items()}
+    first_pos = {tid: sm[min(sm)] for tid, sm in smoothed.items() if sm}
+    last_pos = {tid: sm[max(sm)] for tid, sm in smoothed.items() if sm}
+    team_of_old = {tid: teams.team_of(tid, teams.cls_of.get(tid, 2)) for tid in trajectories}
+    remap = stitch_by_position(track_frames, first_pos, last_pos, team_of_old, fps=fps)
+    canonical_team = majority_team(remap, team_of_old) if remap else team_of_old
 
     frames_out = []
     for fi, (fidx, t) in enumerate(frame_meta):
@@ -135,7 +146,9 @@ def run(
             if pos is None:
                 continue
             sp, fac = kin.get(tid, {}).get(fidx, (0.0, 0.0))
-            players.append(build_player(tid, teams.team_of(tid, cls), cls, pos[0], pos[1], sp, fac))
+            canon = remap.get(tid, tid)
+            team = canonical_team.get(canon, "A")
+            players.append(build_player(canon, team, cls, pos[0], pos[1], sp, fac))
         frames_out.append(
             {
                 "frame": fidx,
@@ -148,6 +161,7 @@ def run(
         )
 
     n_ball = sum(1 for b in ball_per_frame if b is not None)
+    n_canonical = len({remap.get(t, t) for t in trajectories}) if remap else len(trajectories)
     instance = write_v1(
         out,
         video=Path(video).name,
@@ -158,7 +172,8 @@ def run(
         frames=frames_out,
     )
     print(
-        f"wrote {out}: {len(frames_out)} frames | {len(trajectories)} tracks | "
+        f"wrote {out}: {len(frames_out)} frames | "
+        f"tracks {len(trajectories)} -> {n_canonical} canonical (ReID) | "
         f"ball in {n_ball}/{len(frames_out)} frames"
     )
     return instance

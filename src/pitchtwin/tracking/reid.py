@@ -60,7 +60,7 @@ class ReidExtractor:
         batch = torch.stack(crops).to(self.device)
         batch = (batch - self._mean) / self._std
         feats = self.backbone(batch)  # (N, C, H, W)
-        pooled = feats.adaptive_avg_pool2d(1).flatten(1)  # (N, C)
+        pooled = feats.mean(dim=(2, 3))  # global avg pool -> (N, C)
         return F.normalize(pooled, dim=1)
 
 
