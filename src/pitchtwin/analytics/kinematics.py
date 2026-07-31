@@ -15,6 +15,40 @@ def _wrap(a: float) -> float:
     return math.atan2(math.sin(a), math.cos(a))
 
 
+def smooth_angles(samples: list[tuple[int, float]], window: int = 7) -> dict[int, float]:
+    """Smooth a track's per-frame angle samples (radians) via a vector mean.
+
+    ``samples`` are ``(frame, angle)``; returns ``{frame: smoothed_angle}``.
+    Robust to the wraparound at +/-pi.
+    """
+    obs = sorted(samples, key=lambda o: o[0])
+    if not obs:
+        return {}
+    frames = [o[0] for o in obs]
+    ang = [o[1] for o in obs]
+    out: dict[int, float] = {}
+    for i in range(len(obs)):
+        lo = max(0, i - window)
+        seg = ang[lo : i + 1]
+        out[frames[i]] = math.atan2(np.sin(seg).mean(), np.cos(seg).mean())
+    return out
+
+
+def forward_fill(samples: dict[int, float], active_frames: list[int]) -> dict[int, float]:
+    """Hold the most recent sample value across ``active_frames`` (sorted)."""
+    if not samples or not active_frames:
+        return {}
+    items = sorted(samples.items())
+    out: dict[int, float] = {}
+    j = 0
+    for f in sorted(active_frames):
+        while j + 1 < len(items) and items[j + 1][0] <= f:
+            j += 1
+        if items[j][0] <= f:
+            out[f] = items[j][1]
+    return out
+
+
 def _centered_moving_avg(a: np.ndarray, k: int) -> np.ndarray:
     """Centered moving average with edge clamping (``k`` is forced odd)."""
     if k % 2 == 0:

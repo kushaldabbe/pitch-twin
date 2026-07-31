@@ -6,13 +6,19 @@ python -m pitchtwin.pipeline.run --video <mp4> --out <json> [--max-frames 250]
 from __future__ import annotations
 
 import argparse
+import math
 from collections import defaultdict
 from pathlib import Path
 
 import cv2
 import numpy as np
 
-from pitchtwin.analytics.kinematics import compute_kinematics, smooth_trajectory
+from pitchtwin.analytics.kinematics import (
+    compute_kinematics,
+    forward_fill,
+    smooth_angles,
+    smooth_trajectory,
+)
 from pitchtwin.calibration.homography import Calibrator
 from pitchtwin.calibration.keypoints import BEST_WEIGHTS as KP_WEIGHTS
 from pitchtwin.calibration.keypoints import PitchKeypointDetector
@@ -20,6 +26,7 @@ from pitchtwin.detection.config import BEST_WEIGHTS as DET_WEIGHTS
 from pitchtwin.detection.infer import Detector
 from pitchtwin.export.writer import build_ball, build_player
 from pitchtwin.export.writer import write as write_v1
+from pitchtwin.pose.body_pose import BodyPoseDetector, facing_vector
 from pitchtwin.teams.classify import TeamClassifier
 from pitchtwin.tracking.scene import SceneSegmentor
 from pitchtwin.tracking.stitch import majority_team, stitch_by_position
@@ -27,6 +34,22 @@ from pitchtwin.tracking.tracker import Tracker
 
 DEFAULT_LENGTH_M = 105.0
 DEFAULT_WIDTH_M = 68.0
+REID_SAMPLE_INTERVAL = 15  # (unused; kept for reference)
+POSE_SAMPLE_INTERVAL = 5  # body-pose inference cadence (frames)
+
+
+def _iou(a, b) -> float:
+    x1, y1 = max(a[0], b[0]), max(a[1], b[1])
+    x2, y2 = min(a[2], b[2]), min(a[3], b[3])
+    inter = max(0.0, x2 - x1) * max(0.0, y2 - y1)
+    ua = (
+        max(0.0, a[2] - a[0]) * max(0.0, a[3] - a[1])
+        + max(0.0, b[2] - b[0]) * max(0.0, b[3] - b[1])
+        - inter
+    )
+    return inter / ua if ua > 0 else 0.0
+
+
 REID_SAMPLE_INTERVAL = 15  # embed crops every N frames per track
 
 
@@ -59,6 +82,12 @@ def run(
     cal = Calibrator(smoothing_alpha=0.7)
     seg = SceneSegmentor()
     teams = TeamClassifier()
+    try:
+        body = BodyPoseDetector(device=device)
+    except Exception:
+        body = None
+    pose_raw: dict[int, list[tuple[int, float]]] = defaultdict(list)
+    prev_center: dict[int, tuple[float, float]] = {}
 
     frame_meta: list[tuple[int, float]] = []
     items_per_frame: list[list[tuple[int, int, float]]] = []
@@ -94,9 +123,34 @@ def run(
                         pitch_now[tid] = (x, z)
                         trajectories[tid].append((idx, x, z))
 
-        # Sample appearance embeddings for ReID stitching.
-        # (Disabled: ImageNet-pretrained backbones are not discriminative for
-        #  player identity. Stitching uses team + position continuity instead.)
+        # Body pose -> torso facing (used as the POV fallback for off-ball
+        # moments and to drive Stage-2 avatars). Sampled every N frames.
+        if body is not None and idx % POSE_SAMPLE_INTERVAL == 0 and len(tr.boxes) > 0:
+            for pose in body.detect(frame):
+                best_k, best_iou = None, 0.3
+                for k in range(len(tr.boxes)):
+                    iou = _iou(pose["box"], tr.boxes[k])
+                    if iou > best_iou:
+                        best_iou, best_k = iou, k
+                if best_k is None:
+                    continue
+                box_m = tr.boxes[best_k]
+                tid_m = int(tr.ids[best_k])
+                cx = float((box_m[0] + box_m[2]) / 2.0)
+                cy = float(box_m[3])
+                pc = prev_center.get(tid_m)
+                vel_img = np.array([cx - pc[0], cy - pc[1]], np.float32) if pc else None
+                prev_center[tid_m] = (cx, cy)
+                fv = facing_vector(pose["kpts"], vel_img)
+                if fv is None or cal.H is None:
+                    continue
+                foot = np.array([[cx, cy]], dtype=np.float32)
+                tip = np.array([[cx + fv[0] * 50.0, cy + fv[1] * 50.0]], dtype=np.float32)
+                pf = cal.image_to_pitch(np.concatenate([foot, tip], axis=0))
+                if pf is not None:
+                    dx, dz = float(pf[1, 0] - pf[0, 0]), float(pf[1, 1] - pf[0, 1])
+                    if dx * dx + dz * dz > 1e-6:
+                        pose_raw[tid_m].append((idx, math.atan2(dz, dx)))
 
         # Ball
         ball_rec: dict | None = None
@@ -132,6 +186,11 @@ def run(
     # using team agreement + pitch-position continuity (appearance ReID is not
     # discriminative enough with ImageNet-pretrained backbones).
     track_frames = {tid: [f for f, _, _ in traj] for tid, traj in trajectories.items()}
+    # Body-pose facing: smooth per track, then hold across active frames.
+    pose_facing: dict[int, dict[int, float]] = {
+        tid: forward_fill(smooth_angles(raw, window=7), track_frames.get(tid, []))
+        for tid, raw in pose_raw.items()
+    }
     first_pos = {tid: sm[min(sm)] for tid, sm in smoothed.items() if sm}
     last_pos = {tid: sm[max(sm)] for tid, sm in smoothed.items() if sm}
     team_of_old = {tid: teams.team_of(tid, teams.cls_of.get(tid, 2)) for tid in trajectories}
@@ -146,6 +205,9 @@ def run(
             if pos is None:
                 continue
             sp, fac = kin.get(tid, {}).get(fidx, (0.0, 0.0))
+            pose_f = pose_facing.get(tid, {}).get(fidx)
+            if pose_f is not None:
+                fac = pose_f
             canon = remap.get(tid, tid)
             team = canonical_team.get(canon, "A")
             players.append(build_player(canon, team, cls, pos[0], pos[1], sp, fac))
