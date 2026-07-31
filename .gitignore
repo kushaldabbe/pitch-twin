@@ -47,3 +47,5 @@ mlruns/
 .idea/
 .DS_Store
 Thumbs.db
+DESIGN.md
+IMPLEMENTATION.md
