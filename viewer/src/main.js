@@ -122,11 +122,20 @@ async function main() {
     const st = replay.state();
     avatars.update(st);
 
-    // Drive the POV camera from the selected player's pose.
+    // Drive the POV camera from the selected player's pose; aim at the ball.
     if (selectedId != null) {
       const sel = st.players.find((p) => p.id === selectedId);
       if (sel) {
-        rig.setPovTarget({ x: sel.x, z: sel.z, facing: sel.facing, height: sel.height_est });
+        const ball = st.ball && st.ball.tracked !== false
+          ? { x: st.ball.x, z: st.ball.z }
+          : null;
+        rig.setPovTarget({
+          px: sel.x,
+          pz: sel.z,
+          height: sel.height_est,
+          ball,
+          facing: sel.facing,
+        });
       }
     }
 

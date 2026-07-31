@@ -8,8 +8,9 @@ const POSES = {
 };
 
 const EYE_RATIO = 0.92;     // camera height vs player height_est
-const POV_LOOK_AHEAD = 12;  // meters ahead to aim
+const POV_LOOK_AHEAD = 12;  // meters ahead to aim (used when no ball)
 const POV_LOOK_DROP = 1.8;  // look slightly down to see the pitch ahead
+const POV_BALL_Y = 0.5;     // aim at the ball at a low height so the pitch ahead is visible
 
 /**
  * Switchable cameras:
@@ -28,7 +29,7 @@ export class CameraRig {
     this.controls.target.set(0, 0, 0);
 
     this.mode = "orbit";
-    this.povTarget = null; // {x, z, facing, height}
+    this.povTarget = null; // {px, pz, height, ball: {x,z}|null, facing}
     this._look = new THREE.Vector3();
     this.setMode("broadcast");
   }
@@ -47,15 +48,20 @@ export class CameraRig {
 
   update() {
     if (this.mode === "pov" && this.povTarget) {
-      const { x, z, facing, height } = this.povTarget;
+      const { px, pz, height, ball, facing } = this.povTarget;
       const eye = (height ?? 1.78) * EYE_RATIO;
-      this.camera.position.set(x, eye, z);
-      // facing = atan2(dz, dx); nose cone already uses (cos f, 0, sin f).
-      this._look.set(
-        x + Math.cos(facing) * POV_LOOK_AHEAD,
-        eye - POV_LOOK_DROP,
-        z + Math.sin(facing) * POV_LOOK_AHEAD,
-      );
+      this.camera.position.set(px, eye, pz);
+      if (ball) {
+        // Players look at the ball most of the time -- aim at it.
+        this._look.set(ball.x, POV_BALL_Y, ball.z);
+      } else {
+        // No ball in view: fall back to the body/velocity facing.
+        this._look.set(
+          px + Math.cos(facing) * POV_LOOK_AHEAD,
+          eye - POV_LOOK_DROP,
+          pz + Math.sin(facing) * POV_LOOK_AHEAD,
+        );
+      }
       this.camera.lookAt(this._look);
     } else if (this.mode !== "orbit") {
       const pose = POSES[this.mode] ?? POSES.broadcast;
