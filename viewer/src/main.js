@@ -66,8 +66,35 @@ async function main() {
       broadcast: "broadcast camera",
       tactical: "tactical (coach) camera",
       orbit: "drag to orbit · scroll to zoom",
+      pov: selectedId == null ? "POV: click a player" : `POV: player #${selectedId}`,
     }[camSel.value];
     flashStatus(msg);
+  });
+
+  // --- Click a player to drop into their POV ---
+  let selectedId = null;
+  const raycaster = new THREE.Raycaster();
+  const ndc = new THREE.Vector2();
+  renderer.domElement.addEventListener("click", (event) => {
+    const rect = renderer.domElement.getBoundingClientRect();
+    ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+    ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+    raycaster.setFromCamera(ndc, camera);
+    const hits = raycaster.intersectObjects(avatars.getPickables());
+    if (hits.length) {
+      selectedId = hits[0].object.userData.playerId;
+      rig.setMode("pov");
+      camSel.value = "pov";
+      avatars.highlight(selectedId);
+      flashStatus(`POV: player #${selectedId} — click empty pitch to exit`);
+    } else {
+      // Clicked empty pitch: exit POV.
+      selectedId = null;
+      avatars.highlight(null);
+      rig.setMode("broadcast");
+      camSel.value = "broadcast";
+      flashStatus("broadcast camera");
+    }
   });
 
   window.addEventListener("resize", () => {
@@ -83,7 +110,7 @@ async function main() {
     clearTimeout(statusTimer);
     statusTimer = setTimeout(() => statusEl.classList.remove("show"), 1800);
   }
-  flashStatus("drag to orbit · switch camera below");
+  flashStatus("click any player for their POV · switch camera below");
 
   // --- Render loop ---
   const clock = new THREE.Clock();
@@ -94,6 +121,14 @@ async function main() {
 
     const st = replay.state();
     avatars.update(st);
+
+    // Drive the POV camera from the selected player's pose.
+    if (selectedId != null) {
+      const sel = st.players.find((p) => p.id === selectedId);
+      if (sel) {
+        rig.setPovTarget({ x: sel.x, z: sel.z, facing: sel.facing, height: sel.height_est });
+      }
+    }
 
     // Keep scrubber + time in sync during playback.
     if (replay.duration > 0) {

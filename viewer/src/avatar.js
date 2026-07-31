@@ -171,7 +171,8 @@ export class AvatarSystem {
         m.label.material.needsUpdate = true;
         m.currentNumber = labelKey;
       }
-      m.group.visible = true;
+      m.group.visible = true
+      m.body.userData.playerId = p.id;
 
       // Append to trail.
       const trail = this._trailFor(p.id, col);
@@ -198,8 +199,22 @@ export class AvatarSystem {
     }
   }
 
-  _writeTrail(trail) {
-    const arr = trail.positions;
+  getPickables() {
+    // Body meshes (with userData.playerId) for raycasting on click.
+    return Array.from(this.markers.values(), (m) => m.body);
+  }
+
+  highlight(id) {
+    for (const m of this.markers.values()) {
+      m.body.material.emissive?.setHex(0x000000);
+    }
+    if (id != null && this.markers.has(id)) {
+      const m = this.markers.get(id);
+      m.body.material.emissive?.setHex(0x444422);
+    }
+  }
+
+  _writeTrail(trail) {    const arr = trail.positions;
     const attr = trail.line.geometry.getAttribute("position");
     for (let i = 0; i < arr.length; i++) {
       attr.setXYZ(i, arr[i][0], arr[i][1], arr[i][2]);
