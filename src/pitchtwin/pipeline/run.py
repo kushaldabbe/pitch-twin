@@ -19,6 +19,8 @@ from pitchtwin.analytics.kinematics import (
     smooth_angles,
     smooth_trajectory,
 )
+from pitchtwin.ball.config import BEST_WEIGHTS as BALL_WEIGHTS
+from pitchtwin.ball.infer import BallDetector
 from pitchtwin.calibration.homography import Calibrator
 from pitchtwin.calibration.keypoints import BEST_WEIGHTS as KP_WEIGHTS
 from pitchtwin.calibration.keypoints import PitchKeypointDetector
@@ -36,6 +38,26 @@ DEFAULT_LENGTH_M = 105.0
 DEFAULT_WIDTH_M = 68.0
 REID_SAMPLE_INTERVAL = 15  # (unused; kept for reference)
 POSE_SAMPLE_INTERVAL = 5  # body-pose inference cadence (frames)
+
+
+def _interpolate_ball(ball_per_frame: list[dict | None], max_gap: int = 12) -> list[dict | None]:
+    """Fill short gaps between ball detections with linear interpolation."""
+    out = list(ball_per_frame)
+    idxs = [i for i, b in enumerate(ball_per_frame) if b is not None]
+    for a, b in zip(idxs[:-1], idxs[1:], strict=True):
+        gap = b - a - 1
+        if 0 < gap <= max_gap:
+            ba, bb = ball_per_frame[a], ball_per_frame[b]
+            for k in range(1, gap + 1):
+                t = k / (gap + 1)
+                out[a + k] = {
+                    "x": round(ba["x"] + (bb["x"] - ba["x"]) * t, 3),
+                    "z": round(ba["z"] + (bb["z"] - ba["z"]) * t, 3),
+                    "y": 0.0,
+                    "conf": round(min(ba["conf"], bb["conf"]) * 0.8, 3),
+                    "tracked": True,
+                }
+    return out
 
 
 def _iou(a, b) -> float:
@@ -77,7 +99,16 @@ def run(
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
 
     tracker = Tracker(detector_weights=DET_WEIGHTS, device=device)
-    ball_det = Detector(weights=DET_WEIGHTS, device=device, conf=0.15)
+    # Dedicated ball model if trained; otherwise fall back to the player
+    # detector's weak ball class.
+    if BALL_WEIGHTS.exists():
+        ball_model: BallDetector | None = BallDetector(
+            weights=BALL_WEIGHTS, device=device, conf=0.2
+        )
+        ball_det = None
+    else:
+        ball_model = None
+        ball_det = Detector(weights=DET_WEIGHTS, device=device, conf=0.15)
     kp_det = PitchKeypointDetector(weights=KP_WEIGHTS, device=device)
     cal = Calibrator(smoothing_alpha=0.7)
     seg = SceneSegmentor()
@@ -152,18 +183,27 @@ def run(
                     if dx * dx + dz * dz > 1e-6:
                         pose_raw[tid_m].append((idx, math.atan2(dz, dx)))
 
-        # Ball
+        # Ball -- dedicated model if trained, else player detector's ball class.
         ball_rec: dict | None = None
-        bdets = ball_det.detect(frame, classes=(0,))
-        if cal.H is not None and bdets.n > 0:
-            bi = int(np.argmax(bdets.confidence))
-            b = bdets.xyxy[bi]
-            foot = np.array([[float(b[0] + b[2]) / 2.0, float(b[3])]], dtype=np.float32)
-            p = cal.image_to_pitch(foot)
-            if p is not None:
-                bx, bz = float(p[0, 0]), float(p[0, 1])
-                if _in_bounds(bx, bz, length_m, width_m):
-                    ball_rec = build_ball(bx, bz, float(bdets.confidence[bi]))
+        if cal.H is not None:
+            b_box, b_conf = None, 0.0
+            if ball_model is not None:
+                hit = ball_model.detect(frame)
+                if hit is not None:
+                    b_box, b_conf = hit
+            else:
+                bdets = ball_det.detect(frame, classes=(0,))
+                if bdets.n > 0:
+                    bi = int(np.argmax(bdets.confidence))
+                    b_box, b_conf = bdets.xyxy[bi], float(bdets.confidence[bi])
+            if b_box is not None:
+                cx_b = float(b_box[0] + b_box[2]) / 2.0
+                foot = np.array([[cx_b, float(b_box[3])]], dtype=np.float32)
+                p = cal.image_to_pitch(foot)
+                if p is not None:
+                    bx, bz = float(p[0, 0]), float(p[0, 1])
+                    if _in_bounds(bx, bz, length_m, width_m):
+                        ball_rec = build_ball(bx, bz, b_conf)
 
         frame_meta.append((idx, idx / fps))
         items_per_frame.append(items)
@@ -171,6 +211,9 @@ def run(
         ball_per_frame.append(ball_rec)
         idx += 1
     cap.release()
+
+    # Fill short gaps in ball tracking so it reads continuously.
+    ball_per_frame = _interpolate_ball(ball_per_frame)
 
     # Smooth per-fragment trajectories + kinematics.
     smoothed: dict[int, dict[int, tuple[float, float]]] = {
