@@ -120,7 +120,7 @@ async function main() {
     replay.update(dt);
 
     const st = replay.state();
-    avatars.update(st);
+    avatars.update(st, dt);
 
     // Drive the POV camera from the selected player's pose; aim at the ball.
     if (selectedId != null) {
