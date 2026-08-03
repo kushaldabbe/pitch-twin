@@ -50,7 +50,6 @@ function makeLimb(radius, length, color) {
     new THREE.CapsuleGeometry(radius, length, 4, 8),
     new THREE.MeshStandardMaterial({ color, roughness: 0.7 }),
   );
-  mesh.castShadow = true;
   mesh.position.y = -(length / 2 + radius);
   pivot.add(mesh);
   return pivot;
@@ -100,7 +99,6 @@ export class AvatarSystem {
       new THREE.CylinderGeometry(0.18, 0.16, 0.55, 10),
       new THREE.MeshStandardMaterial({ color: jersey, roughness: 0.7 }),
     );
-    torso.castShadow = true;
     torso.position.y = 1.18;
     figure.add(torso);
 
@@ -108,7 +106,6 @@ export class AvatarSystem {
       new THREE.CylinderGeometry(0.16, 0.14, 0.18, 10),
       new THREE.MeshStandardMaterial({ color: COLORS.dark, roughness: 0.7 }),
     );
-    hips.castShadow = true;
     hips.position.y = 0.88;
     figure.add(hips);
 
@@ -116,7 +113,6 @@ export class AvatarSystem {
       new THREE.SphereGeometry(0.12, 14, 14),
       new THREE.MeshStandardMaterial({ color: COLORS.skin, roughness: 0.8 }),
     );
-    head.castShadow = true;
     head.position.y = 1.62;
     figure.add(head);
 
@@ -222,12 +218,7 @@ export class AvatarSystem {
 
       const h = p.height_est ?? 1.78;
       m.root.position.set(p.x, 0.0, p.z);
-      // Smooth the facing toward the target (shortest arc) -- kills jitter from
-      // noisy body-pose facing and frame interpolation.
-      const targetFac = -(p.facing ?? 0);
-      let d = ((targetFac - m.root.rotation.y + Math.PI) % (Math.PI * 2)) - Math.PI;
-      if (d < -Math.PI) d += Math.PI * 2;
-      m.root.rotation.y += d * 0.18;
+      m.root.rotation.y = -(p.facing ?? 0);
       m.root.scale.setScalar(h / 1.78);
       m.torso.userData.playerId = p.id;
 
