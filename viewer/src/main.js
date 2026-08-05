@@ -19,12 +19,17 @@ function formatTime(t) {
 async function main() {
   const data = await loadData();
   const replay = new Replay(data);
-  const { scene } = createScene(replay.lengthM, replay.widthM);
+  const { scene } = createScene(replay.lengthM, replay.widthM, renderer);
 
   const app = document.getElementById("app");
   const renderer = new THREE.WebGLRenderer({ antialias: true });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
   renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.outputColorSpace = THREE.SRGBColorSpace;
+  renderer.toneMapping = THREE.ACESFilmicToneMapping;
+  renderer.toneMappingExposure = 1.0;
+  renderer.shadowMap.enabled = true;
+  renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   app.appendChild(renderer.domElement);
 
   const camera = new THREE.PerspectiveCamera(
@@ -80,9 +85,16 @@ async function main() {
     ndc.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
     ndc.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
     raycaster.setFromCamera(ndc, camera);
-    const hits = raycaster.intersectObjects(avatars.getPickables());
+    const hits = raycaster.intersectObjects(avatars.getPickables(), true);
+    // Resolve the player id by walking up to the avatar root that carries it.
+    let hitId = null;
     if (hits.length) {
-      selectedId = hits[0].object.userData.playerId;
+      let o = hits[0].object;
+      while (o && o.userData.playerId === undefined) o = o.parent;
+      hitId = o ? o.userData.playerId : null;
+    }
+    if (hitId != null) {
+      selectedId = hitId;
       rig.setMode("pov");
       camSel.value = "pov";
       avatars.highlight(selectedId);
