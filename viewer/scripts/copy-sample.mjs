@@ -1,18 +1,35 @@
-import { copyFileSync, existsSync, mkdirSync } from "node:fs";
+// Build step: copy every clip JSON in data/sample_clip into the viewer's
+// public/clips/ folder and emit a clips.json index, so the production build
+// ships with the same multi-clip selector the dev server exposes.
+import { copyFileSync, existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import { discoverClips, clipPath } from "./clips.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-// Prefer the real CV pipeline output; fall back to the synthetic clip.
-const realSrc = resolve(__dirname, "../../data/sample_clip/real.json");
-const synthSrc = resolve(__dirname, "../../data/sample_clip/synthetic.json");
-const src = existsSync(realSrc) ? realSrc : synthSrc;
-const dst = resolve(__dirname, "../public/sample.json");
+const clipDir = resolve(__dirname, "../../data/sample_clip");
+const outDir = resolve(__dirname, "../public/clips");
+const indexDst = resolve(__dirname, "../public/clips.json");
 
-mkdirSync(dirname(dst), { recursive: true });
-try {
-  copyFileSync(src, dst);
-  console.log(`copied ${src} -> ${dst}`);
-} catch {
-  console.warn(`warning: ${src} not found — build will still work, demo will 404`);
+// Start from a clean clips/ folder so removed clips do not linger.
+rmSync(outDir, { recursive: true, force: true });
+mkdirSync(outDir, { recursive: true });
+
+const clips = discoverClips(clipDir);
+if (clips.length === 0) {
+  console.warn("warning: no clips found in data/sample_clip — viewer will have an empty selector");
 }
+
+for (const { id } of clips) {
+  const src = clipPath(clipDir, id);
+  const dst = resolve(outDir, `${id}.json`);
+  try {
+    copyFileSync(src, dst);
+    console.log(`copied ${src} -> ${dst}`);
+  } catch {
+    console.warn(`warning: could not copy ${src}`);
+  }
+}
+
+writeFileSync(indexDst, JSON.stringify(clips), "utf-8");
+console.log(`wrote ${indexDst} (${clips.length} clips)`);

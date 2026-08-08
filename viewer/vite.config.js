@@ -2,32 +2,51 @@ import { defineConfig } from "vite";
 import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
+import { discoverClips, clipPath } from "./scripts/clips.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const realPath = resolve(__dirname, "../data/sample_clip/real.json");
-const synthPath = resolve(__dirname, "../data/sample_clip/synthetic.json");
+const clipDir = resolve(__dirname, "../data/sample_clip");
 
-// Dev-only: serve the real CV pipeline output if present, else the synthetic
-// clip, so the viewer always has data and reflects the latest regeneration.
-const serveLiveSample = () => ({
-  name: "serve-live-sample",
+// Dev-only: expose the clip index and per-clip JSON so the viewer can list and
+// switch matches without a server restart. Paths are relative to match the
+// viewer's relative fetches (works with base: "./").
+const serveClips = () => ({
+  name: "serve-clips",
   configureServer(server) {
-    server.middlewares.use("/sample.json", (_req, res) => {
-      const path = existsSync(realPath) ? realPath : synthPath;
+    server.middlewares.use("/clips.json", (_req, res) => {
+      res.setHeader("Content-Type", "application/json");
+      res.end(JSON.stringify(discoverClips(clipDir)));
+    });
+    // /clips/<id>.json -> the matching file in data/sample_clip. The id is
+    // validated against the discovered list to block path traversal.
+    server.middlewares.use("/clips", (req, res, next) => {
+      const m = typeof req.url === "string" ? req.url.match(/^\/([^/]+)\.json$/) : null;
+      if (!m) return next();
+      const id = decodeURIComponent(m[1]);
+      if (!discoverClips(clipDir).some((c) => c.id === id)) {
+        res.statusCode = 404;
+        res.end("clip not found");
+        return;
+      }
+      const path = clipPath(clipDir, id);
+      if (!existsSync(path)) {
+        res.statusCode = 404;
+        res.end("clip not found");
+        return;
+      }
       try {
-        const data = readFileSync(path);
         res.setHeader("Content-Type", "application/json");
-        res.end(data);
+        res.end(readFileSync(path));
       } catch {
         res.statusCode = 500;
-        res.end("sample.json not found — run the synthetic generator or the pipeline first");
+        res.end("could not read clip");
       }
     });
   },
 });
 
 export default defineConfig({
-  plugins: [serveLiveSample()],
+  plugins: [serveClips()],
   base: "./",
   server: { open: true, port: 5173 },
 });

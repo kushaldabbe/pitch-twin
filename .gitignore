@@ -20,6 +20,8 @@ viewer/node_modules/
 viewer/dist/
 viewer/.vite/
 viewer/public/sample.json
+viewer/public/clips/
+viewer/public/clips.json
 node_modules/
 
 # --- Data (large / regeneratable, never committed) ---

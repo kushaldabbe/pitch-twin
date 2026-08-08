@@ -193,6 +193,16 @@ export class AvatarSystem {
     }
   }
 
+  /** Remove every avatar and trail (used when the active clip changes). */
+  clear() {
+    for (const m of this.markers.values()) this.scene.remove(m.root);
+    for (const t of this.trails.values()) this.scene.remove(t.line);
+    this.markers.clear();
+    this.trails.clear();
+    this._lastFrame = -1;
+    this.ball.visible = false;
+  }
+
   getPickables() {
     return Array.from(this.markers.values(), (m) => m.root);
   }
