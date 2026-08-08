@@ -19,7 +19,6 @@ function formatTime(t) {
 async function main() {
   const data = await loadData();
   const replay = new Replay(data);
-  const { scene } = createScene(replay.lengthM, replay.widthM, renderer);
 
   const app = document.getElementById("app");
   const renderer = new THREE.WebGLRenderer({ antialias: true });
@@ -31,6 +30,8 @@ async function main() {
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   app.appendChild(renderer.domElement);
+
+  const { scene } = createScene(replay.lengthM, replay.widthM, renderer);
 
   const camera = new THREE.PerspectiveCamera(
     50,
