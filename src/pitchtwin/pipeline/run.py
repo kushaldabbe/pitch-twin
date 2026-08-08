@@ -240,20 +240,34 @@ def run(
     remap = stitch_by_position(track_frames, first_pos, last_pos, team_of_old, fps=fps)
     canonical_team = majority_team(remap, team_of_old) if remap else team_of_old
 
+    cls_votes: defaultdict[int, defaultdict[int, float]] = defaultdict(
+        lambda: defaultdict(float)
+    )
+    for items in items_per_frame:
+        for tid, cls, conf in items:
+            cls_votes[remap.get(tid, tid)][cls] += conf
+    locked_cls = {canon: max(v, key=v.get) for canon, v in cls_votes.items()}
+
     frames_out = []
     for fi, (fidx, t) in enumerate(frame_meta):
-        players = []
-        for tid, cls, _conf in items_per_frame[fi]:
-            pos = smoothed.get(tid, {}).get(fidx)
-            if pos is None:
+        best: dict[int, tuple[float, int]] = {}
+        for tid, _cls, conf in items_per_frame[fi]:
+            if smoothed.get(tid, {}).get(fidx) is None:
                 continue
+            canon = remap.get(tid, tid)
+            if canon not in best or conf > best[canon][0]:
+                best[canon] = (conf, tid)
+        players = []
+        for canon, (_conf, tid) in best.items():
+            px, pz = smoothed[tid][fidx]
             sp, fac = kin.get(tid, {}).get(fidx, (0.0, 0.0))
             pose_f = pose_facing.get(tid, {}).get(fidx)
             if pose_f is not None:
                 fac = pose_f
-            canon = remap.get(tid, tid)
             team = canonical_team.get(canon, "A")
-            players.append(build_player(canon, team, cls, pos[0], pos[1], sp, fac))
+            players.append(
+                build_player(canon, team, locked_cls.get(canon, 2), px, pz, sp, fac)
+            )
         frames_out.append(
             {
                 "frame": fidx,
