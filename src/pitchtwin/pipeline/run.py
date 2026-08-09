@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import argparse
 import math
+import os
 from collections import defaultdict
 from pathlib import Path
 
@@ -245,6 +246,30 @@ def run(
     for tid, sm in smoothed.items():
         for _fidx, (x, z) in sm.items():
             positions_by_canon.setdefault(remap.get(tid, tid), []).append((x, z))
+
+    if os.environ.get("PITCHTWIN_DUMP_ROLES"):
+        import pickle
+
+        dump = {
+            "remap": remap,
+            "canonical_team": canonical_team,
+            "positions_by_canon": {k: list(v) for k, v in positions_by_canon.items()},
+            "colors_by_tid": {
+                t: [c.tolist() for c in labs] for t, labs in teams.colors.items()
+            },
+            "centroids": (
+                None
+                if teams._centroids is None
+                else [c.tolist() for c in teams._centroids]
+            ),
+            "half_length": length_m / 2.0,
+        }
+        out_dump = Path("runs/role_debug.pkl")
+        out_dump.parent.mkdir(parents=True, exist_ok=True)
+        with out_dump.open("wb") as fh:
+            pickle.dump(dump, fh)
+        print(f"dumped role inputs to {out_dump}")
+
     derived = teams.derive_roles(remap, canonical_team, positions_by_canon, length_m / 2.0)
 
     frames_out = []
