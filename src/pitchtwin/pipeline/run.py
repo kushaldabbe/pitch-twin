@@ -25,6 +25,7 @@ from pitchtwin.calibration.homography import Calibrator
 from pitchtwin.calibration.keypoints import BEST_WEIGHTS as KP_WEIGHTS
 from pitchtwin.calibration.keypoints import PitchKeypointDetector
 from pitchtwin.detection.config import BEST_WEIGHTS as DET_WEIGHTS
+from pitchtwin.detection.config import PLAYER
 from pitchtwin.detection.infer import Detector
 from pitchtwin.export.writer import build_ball, build_player
 from pitchtwin.export.writer import write as write_v1
@@ -240,13 +241,11 @@ def run(
     remap = stitch_by_position(track_frames, first_pos, last_pos, team_of_old, fps=fps)
     canonical_team = majority_team(remap, team_of_old) if remap else team_of_old
 
-    cls_votes: defaultdict[int, defaultdict[int, float]] = defaultdict(
-        lambda: defaultdict(float)
-    )
-    for items in items_per_frame:
-        for tid, cls, conf in items:
-            cls_votes[remap.get(tid, tid)][cls] += conf
-    locked_cls = {canon: max(v, key=v.get) for canon, v in cls_votes.items()}
+    positions_by_canon: dict[int, list[tuple[float, float]]] = {}
+    for tid, sm in smoothed.items():
+        for _fidx, (x, z) in sm.items():
+            positions_by_canon.setdefault(remap.get(tid, tid), []).append((x, z))
+    derived = teams.derive_roles(remap, canonical_team, positions_by_canon, length_m / 2.0)
 
     frames_out = []
     for fi, (fidx, t) in enumerate(frame_meta):
@@ -264,10 +263,8 @@ def run(
             pose_f = pose_facing.get(tid, {}).get(fidx)
             if pose_f is not None:
                 fac = pose_f
-            team = canonical_team.get(canon, "A")
-            players.append(
-                build_player(canon, team, locked_cls.get(canon, 2), px, pz, sp, fac)
-            )
+            role_cls, role_team = derived.get(canon, (PLAYER, "A"))
+            players.append(build_player(canon, role_team, role_cls, px, pz, sp, fac))
         frames_out.append(
             {
                 "frame": fidx,

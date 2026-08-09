@@ -17,7 +17,7 @@ import cv2
 import numpy as np
 from sklearn.cluster import KMeans
 
-from pitchtwin.detection.config import PLAYER, REFEREE
+from pitchtwin.detection.config import GOALKEEPER, PLAYER, REFEREE
 
 # Green-pitch HSV range to mask OUT (so only jersey pixels are measured).
 _GRASS_LOWER = np.array([35, 40, 40])
@@ -112,3 +112,69 @@ class TeamClassifier:
         if self.locked and self._centroids is not None:
             return self._nearest(track_id, self.colors.get(track_id, []))
         return "A"
+
+    def derive_roles(
+        self,
+        remap: dict[int, int],
+        canonical_team: dict[int, str | None],
+        positions_by_canon: dict[int, list[tuple[float, float]]],
+        half_length: float,
+    ) -> dict[int, tuple[int, str | None]]:
+        """Assign role per canonical id from kit colour + pitch position.
+
+        The detector's class label is unreliable for keepers/refs, so role is
+        decided from trusted signals: keeper and referee kits differ in colour
+        from both outfield teams, and keepers stay in their own goal area. Color
+        separates outfield from officials; position separates keeper from ref.
+
+        Returns ``{canon: (cls, team)}`` with cls in {GOALKEEPER, PLAYER, REFEREE}.
+        """
+        col_by_canon: dict[int, list[np.ndarray]] = {}
+        for tid, labs in self.colors.items():
+            col_by_canon.setdefault(remap.get(tid, tid), []).extend(labs)
+
+        fallback = self._centroids is None or len(self._centroids) < 2
+        all_canons = set(col_by_canon) | set(positions_by_canon)
+        if fallback:
+            return {c: (PLAYER, canonical_team.get(c, "A")) for c in all_canons}
+
+        c0 = np.asarray(self._centroids[0], dtype=np.float32)
+        c1 = np.asarray(self._centroids[1], dtype=np.float32)
+        team_dist = float(np.linalg.norm(c0 - c1))
+
+        team_x: dict[str, list[float]] = {}
+        for canon, team in canonical_team.items():
+            if team in ("A", "B"):
+                xs = [p[0] for p in positions_by_canon.get(canon, ())]
+                if xs:
+                    team_x.setdefault(team, []).extend(xs)
+        goal_team: dict[int, str] = {}
+        if team_x.get("A") and team_x.get("B"):
+            side_a = 1 if float(np.median(team_x["A"])) > float(np.median(team_x["B"])) else -1
+            goal_team[side_a] = "A"
+            goal_team[-side_a] = "B"
+
+        derived: dict[int, tuple[int, str | None]] = {}
+        for canon in all_canons:
+            labs = col_by_canon.get(canon)
+            team = canonical_team.get(canon, "A")
+            if not labs:
+                derived[canon] = (PLAYER, team)
+                continue
+            mean_col = np.asarray(labs, dtype=np.float32).mean(axis=0)
+            d0 = float(np.linalg.norm(mean_col - c0))
+            d1 = float(np.linalg.norm(mean_col - c1))
+            distinct = min(d0, d1) > 0.45 * team_dist
+            ps = positions_by_canon.get(canon, ())
+            med_x = float(np.median([p[0] for p in ps])) if ps else 0.0
+            med_z = float(np.median([p[1] for p in ps])) if ps else 0.0
+            if distinct:
+                near_goal = abs(med_x) > half_length - 16.5 and abs(med_z) < 20.15
+                if near_goal:
+                    gk_team = goal_team.get(1 if med_x > 0 else -1, team)
+                    derived[canon] = (GOALKEEPER, gk_team)
+                else:
+                    derived[canon] = (REFEREE, None)
+            else:
+                derived[canon] = (PLAYER, "A" if d0 <= d1 else "B")
+        return derived
