@@ -35,6 +35,18 @@
     "frames": {
       "type": "array",
       "items": { "$ref": "#/$defs/frame" }
+    },
+    "colors": {
+      "type": "object",
+      "description": "Optional per-role kit colours as [r, g, b] in 0-255 sampled from the video.",
+      "properties": {
+        "A": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "B": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "referee": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "gkA": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 },
+        "gkB": { "type": "array", "items": { "type": "number" }, "minItems": 3, "maxItems": 3 }
+      },
+      "additionalProperties": false
     }
   },
   "$defs": {

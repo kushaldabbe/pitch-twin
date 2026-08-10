@@ -59,6 +59,7 @@ def write(
     length_m: float,
     width_m: float,
     frames: list[dict[str, Any]],
+    colors: dict[str, list[int]] | None = None,
 ) -> dict[str, Any]:
     """Assemble the v1 instance, validate against the schema, write to ``path``."""
     instance = {
@@ -67,6 +68,8 @@ def write(
         "pitch": {"length_m": length_m, "width_m": width_m},
         "frames": frames,
     }
+    if colors:
+        instance["colors"] = colors
     validate(instance)
     p = Path(path)
     p.parent.mkdir(parents=True, exist_ok=True)

@@ -271,6 +271,7 @@ def run(
         print(f"dumped role inputs to {out_dump}")
 
     derived = teams.derive_roles(remap, canonical_team, positions_by_canon, length_m / 2.0)
+    kit_colors = teams.export_kit_colors(derived, remap)
 
     frames_out = []
     for fi, (fidx, t) in enumerate(frame_meta):
@@ -311,6 +312,7 @@ def run(
         length_m=length_m,
         width_m=width_m,
         frames=frames_out,
+        colors=kit_colors,
     )
     print(
         f"wrote {out}: {len(frames_out)} frames | "

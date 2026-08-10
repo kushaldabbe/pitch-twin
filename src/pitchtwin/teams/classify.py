@@ -25,17 +25,25 @@ _GRASS_UPPER = np.array([90, 255, 255])
 
 
 def torso_crop(frame: np.ndarray, xyxy: np.ndarray) -> np.ndarray:
-    """Top 20-60% of the bbox height -- the jersey region, above the shorts."""
+    """Central chest band of the bbox -- the jersey core, away from the
+    grass-contaminated box edges (important for small players on a tactical cam).
+    """
     x1, y1, x2, y2 = (int(round(v)) for v in xyxy)
-    x1, x2 = max(x1, 0), min(x2, frame.shape[1])
+    w = x2 - x1
     h = y2 - y1
-    ty1, ty2 = y1 + int(0.2 * h), y1 + int(0.6 * h)
-    ty1, ty2 = max(ty1, 0), min(ty2, frame.shape[0])
-    return frame[ty1:ty2, x1:x2]
+    cx1 = max(x1 + int(0.22 * w), 0)
+    cx2 = min(x1 + int(0.78 * w), frame.shape[1])
+    cy1 = max(y1 + int(0.24 * h), 0)
+    cy2 = min(y1 + int(0.55 * h), frame.shape[0])
+    return frame[cy1:cy2, cx1:cx2]
 
 
 def jersey_lab(crop: np.ndarray) -> np.ndarray | None:
-    """Mean LAB color of the non-grass pixels in ``crop`` (or None if too few)."""
+    """Median LAB color of the non-grass pixels in ``crop`` (or None if too few).
+
+    Median is used instead of the mean so the dominant jersey colour is not
+    pulled toward grey by skin, shorts, or grass leakage on small crops.
+    """
     if crop.size == 0:
         return None
     hsv = cv2.cvtColor(crop, cv2.COLOR_BGR2HSV)
@@ -44,8 +52,8 @@ def jersey_lab(crop: np.ndarray) -> np.ndarray | None:
     if cv2.countNonZero(jersey_mask) < 30:
         return None
     lab = cv2.cvtColor(crop, cv2.COLOR_BGR2LAB)
-    mean = cv2.mean(lab, mask=jersey_mask)[:3]
-    return np.asarray(mean, dtype=np.float32)
+    px = lab[jersey_mask > 0]
+    return np.asarray(np.median(px, axis=0), dtype=np.float32)
 
 
 class TeamClassifier:
@@ -178,3 +186,45 @@ class TeamClassifier:
             else:
                 derived[canon] = (PLAYER, "A" if d0 <= d1 else "B")
         return derived
+
+    def export_kit_colors(
+        self,
+        derived: dict[int, tuple[int, str | None]],
+        remap: dict[int, int],
+    ) -> dict[str, list[int]]:
+        """Return per-role kit colours as {role: [r, g, b]} in 0-255.
+
+        Teams use the KMeans centroids; referees and each keeper use the mean
+        LAB of the identities assigned that role. LAB is converted back to RGB
+        so the viewer can tint jerseys to match what is in the video.
+        """
+        col_by_canon: dict[int, list[np.ndarray]] = {}
+        for tid, labs in self.colors.items():
+            col_by_canon.setdefault(remap.get(tid, tid), []).extend(labs)
+
+        def mean_lab(canon: int) -> np.ndarray | None:
+            labs = col_by_canon.get(canon)
+            return None if not labs else np.asarray(labs, dtype=np.float32).mean(axis=0)
+
+        def lab_rgb(lab: np.ndarray | None) -> list[int] | None:
+            if lab is None:
+                return None
+            arr = np.clip(lab, 0, 255).astype(np.uint8).reshape(1, 1, 3)
+            bgr = cv2.cvtColor(arr, cv2.COLOR_LAB2BGR)[0, 0]
+            return [int(bgr[2]), int(bgr[1]), int(bgr[0])]
+
+        def agg(canons: list[int]) -> list[int] | None:
+            vals = [v for v in (mean_lab(c) for c in canons) if v is not None]
+            return lab_rgb(np.mean(vals, axis=0)) if vals else None
+
+        out: dict[str, list[int]] = {}
+        if self._centroids is not None and len(self._centroids) >= 2:
+            out["A"] = lab_rgb(self._centroids[0])
+            out["B"] = lab_rgb(self._centroids[1])
+        refs = [c for c, (cls, _t) in derived.items() if cls == REFEREE]
+        gk_a = [c for c, (cls, t) in derived.items() if cls == GOALKEEPER and t == "A"]
+        gk_b = [c for c, (cls, t) in derived.items() if cls == GOALKEEPER and t == "B"]
+        out["referee"] = agg(refs)
+        out["gkA"] = agg(gk_a)
+        out["gkB"] = agg(gk_b)
+        return {k: v for k, v in out.items() if v is not None}
