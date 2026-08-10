@@ -139,6 +139,7 @@ async function main() {
 
   function playClip(data) {
     avatars.clear();
+    avatars.setColors(data.colors);
     selectedId = null;
     replay = new Replay(data);
     rig.setMode("broadcast");
