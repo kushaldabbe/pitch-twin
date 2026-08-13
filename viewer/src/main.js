@@ -46,6 +46,7 @@ async function main() {
   const camSel = document.getElementById("camera");
   const statusEl = document.getElementById("status");
   const momentsEl = document.querySelector("#moments .list");
+  const recBtn = document.getElementById("recBtn");
 
   let replay = null;
   let selectedId = null;
@@ -57,6 +58,8 @@ async function main() {
   let momentEnd = 0;
   let momentSpeed = 1;
   let lastScorer = null;
+  let lastMoment = null;
+  let recording = null;
 
   playBtn.addEventListener("click", () => {
     const playing = replay?.togglePlay();
@@ -165,6 +168,7 @@ async function main() {
 
   function updateMomentsUI() {
     momentsEl.innerHTML = "";
+    recBtn.disabled = moments.length === 0;
     if (!moments.length) {
       const e = document.createElement("div");
       e.className = "empty";
@@ -187,6 +191,7 @@ async function main() {
 
   function playMoment(m) {
     moment = m;
+    lastMoment = m;
     momentActive = true;
     const endFrame = Math.min(m.endFrame, replay.frameCount - 1);
     momentEnd = replay.frames[endFrame]?.t ?? replay.duration;
@@ -211,11 +216,76 @@ async function main() {
     momentActive = false;
     moment = null;
     replay?.setSpeed(momentSpeed);
+    if (recording) stopRecording();
     if (!keepCam) {
       rig.setMode("broadcast");
       camSel.value = "broadcast";
     }
   }
+
+  // --- Clip export: record the WebGL canvas during a moment to a shareable file ---
+  function pickMime() {
+    for (const t of ["video/webm;codecs=vp9", "video/webm;codecs=vp8", "video/webm"]) {
+      if (typeof MediaRecorder !== "undefined" && MediaRecorder.isTypeSupported(t)) return t;
+    }
+    return "";
+  }
+
+  function recordMoment(m) {
+    if (recording || !m) return;
+    const mime = pickMime();
+    if (!mime) {
+      flashStatus("recording not supported in this browser");
+      return;
+    }
+    const canvas = renderer.domElement;
+    const stream = canvas.captureStream(0);
+    const track = stream.getVideoTracks()[0];
+    const rec = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
+    const chunks = [];
+    rec.ondataavailable = (e) => {
+      if (e.data && e.data.size) chunks.push(e.data);
+    };
+    rec.onstop = () => {
+      stream.getTracks().forEach((t) => t.stop());
+      const blob = new Blob(chunks, { type: mime });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `pitchtwin-${currentClipId ?? "clip"}-goal-${Math.round(m.t)}s.webm`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      setTimeout(() => URL.revokeObjectURL(url), 2000);
+    };
+    rec.start();
+    recording = { rec, track };
+    recBtn.classList.add("busy");
+    recBtn.textContent = "Recording…";
+    playMoment(m);
+    flashStatus("recording score moment…");
+  }
+
+  function stopRecording() {
+    if (!recording) return;
+    try {
+      recording.rec.stop();
+    } catch {
+      /* ignore */
+    }
+    recording = null;
+    recBtn.classList.remove("busy");
+    recBtn.textContent = "Save clip";
+    flashStatus("clip saved");
+  }
+
+  recBtn.addEventListener("click", () => {
+    if (recording) {
+      exitMoment(false);
+    } else {
+      recordMoment(lastMoment ?? moments[0]);
+    }
+  });
 
   window.addEventListener("resize", () => {
     camera.aspect = window.innerWidth / window.innerHeight;
@@ -314,6 +384,7 @@ async function main() {
 
     rig.update();
     renderer.render(scene, camera);
+    if (recording) recording.track.requestFrame();
   }
   animate();
 }
