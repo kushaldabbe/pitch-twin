@@ -47,6 +47,8 @@ async function main() {
   const statusEl = document.getElementById("status");
   const momentsEl = document.querySelector("#moments .list");
   const recBtn = document.getElementById("recBtn");
+  const cinema = document.getElementById("cinema");
+  const cinemaTitle = document.getElementById("cinemaTitle");
 
   let replay = null;
   let selectedId = null;
@@ -172,17 +174,18 @@ async function main() {
     if (!moments.length) {
       const e = document.createElement("div");
       e.className = "empty";
-      e.textContent = "no goals detected in this clip";
+      e.textContent = "no moments detected in this clip";
       momentsEl.appendChild(e);
       return;
     }
+    const label = { goal: "Goal", shot: "Shot", save: "Save", tackle: "Tackle", run: "Run" };
     for (const m of moments) {
       const b = document.createElement("button");
       b.className = "mom";
       const mm = Math.floor(m.t / 60);
       const ss = Math.round(m.t % 60);
       b.innerHTML =
-        `<div>Goal · ${m.team ?? "?"}</div>` +
+        `<div>${label[m.type] ?? m.type} · ${m.team ?? "?"}</div>` +
         `<div class="t">${mm}:${String(ss).padStart(2, "0")}</div>`;
       b.addEventListener("click", () => playMoment(m));
       momentsEl.appendChild(b);
@@ -205,7 +208,10 @@ async function main() {
     lastScorer = null;
     rig.setMode("scorecam");
     camSel.value = "scorecam";
-    flashStatus(`score moment — ${m.team ?? ""} goal`);
+    const label = { goal: "Goal", shot: "Shot", save: "Save", tackle: "Tackle", run: "Run" };
+    cinemaTitle.textContent = `${label[m.type] ?? "Moment"} · ${m.team ?? ""}`;
+    cinema.classList.add("show");
+    flashStatus(`score moment — ${m.team ?? ""} ${label[m.type] ?? ""}`);
   }
 
   function exitMoment(keepCam) {
@@ -215,6 +221,7 @@ async function main() {
     }
     momentActive = false;
     moment = null;
+    cinema.classList.remove("show");
     replay?.setSpeed(momentSpeed);
     if (recording) stopRecording();
     if (!keepCam) {
@@ -362,7 +369,7 @@ async function main() {
 
     if (momentActive && moment) {
       const scorer =
-        moment.scorerId != null ? st.players.find((p) => p.id === moment.scorerId) : null;
+        moment.playerId != null ? st.players.find((p) => p.id === moment.playerId) : null;
       if (scorer) {
         const ball =
           st.ball && st.ball.tracked !== false ? { x: st.ball.x, z: st.ball.z } : null;
