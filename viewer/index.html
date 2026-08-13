@@ -42,6 +42,21 @@
         background: var(--bar-bg); border: 1px solid rgba(255,255,255,0.08);
         border-radius: 12px; font-size: 12px; line-height: 1.7;
       }
+      #moments {
+        position: fixed; left: 16px; top: 150px; width: 200px; z-index: 10;
+        background: var(--bar-bg); border: 1px solid rgba(255,255,255,0.08);
+        border-radius: 12px; font-size: 12px; max-height: 60vh; overflow-y: auto;
+      }
+      #moments .title { padding: 9px 12px 5px; font-weight: 600; opacity: 0.85; }
+      #moments .list { display: flex; flex-direction: column; padding: 0 6px 8px; gap: 4px; }
+      #moments .mom {
+        background: rgba(255,255,255,0.06); border: 1px solid rgba(255,255,255,0.08);
+        color: var(--text); border-radius: 8px; padding: 7px 10px; text-align: left;
+        cursor: pointer; font-size: 12px;
+      }
+      #moments .mom:hover { background: rgba(59,130,246,0.3); }
+      #moments .mom .t { opacity: 0.65; font-size: 11px; }
+      #moments .empty { padding: 4px 12px 10px; opacity: 0.5; }
       #legend .sw { display: inline-block; width: 10px; height: 10px; border-radius: 50%;
         margin-right: 6px; vertical-align: middle; }
       #status {
@@ -63,6 +78,11 @@
       <div><span class="sw" style="background:#ffffff"></span>Ball</div>
     </div>
 
+    <div id="moments">
+      <div class="title">Score moments</div>
+      <div class="list"></div>
+    </div>
+
     <div id="status">drag to orbit · switch camera below</div>
 
     <div id="bar">
@@ -81,6 +101,7 @@
         <option value="broadcast" selected>Broadcast</option>
         <option value="tactical">Tactical</option>
         <option value="pov">POV (click a player)</option>
+        <option value="scorecam">Score cam</option>
         <option value="orbit">Orbit</option>
       </select>
     </div>

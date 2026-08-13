@@ -3,6 +3,7 @@ import { createScene } from "./scene.js";
 import { AvatarSystem } from "./avatar.js";
 import { CameraRig } from "./camera.js";
 import { Replay } from "./replay.js";
+import { detectMoments } from "./moments.js";
 
 const CLIPS_URL = "./clips.json";
 const clipUrl = (id) => `./clips/${id}.json`;
@@ -44,11 +45,18 @@ async function main() {
   const speedSel = document.getElementById("speed");
   const camSel = document.getElementById("camera");
   const statusEl = document.getElementById("status");
+  const momentsEl = document.querySelector("#moments .list");
 
   let replay = null;
   let selectedId = null;
   let currentClipId = null;
   const clipIds = [];
+  let moments = [];
+  let moment = null;
+  let momentActive = false;
+  let momentEnd = 0;
+  let momentSpeed = 1;
+  let lastScorer = null;
 
   playBtn.addEventListener("click", () => {
     const playing = replay?.togglePlay();
@@ -65,12 +73,14 @@ async function main() {
   speedSel.addEventListener("change", () => replay?.setSpeed(Number(speedSel.value)));
 
   camSel.addEventListener("change", () => {
+    if (momentActive && camSel.value !== "scorecam") exitMoment(true);
     rig.setMode(camSel.value);
     const msg = {
       broadcast: "broadcast camera",
       tactical: "tactical (coach) camera",
       orbit: "drag to orbit · scroll to zoom",
       pov: selectedId == null ? "POV: click a player" : `POV: player #${selectedId}`,
+      scorecam: "score cam — pick a moment on the left",
     }[camSel.value];
     flashStatus(msg);
   });
@@ -141,6 +151,7 @@ async function main() {
     avatars.clear();
     avatars.setColors(data.colors);
     selectedId = null;
+    exitMoment(true);
     replay = new Replay(data);
     rig.setMode("broadcast");
     camSel.value = "broadcast";
@@ -148,6 +159,62 @@ async function main() {
     scrub.value = 0;
     playBtn.textContent = "Play";
     timeEl.textContent = formatTime(0);
+    moments = detectMoments(data);
+    updateMomentsUI();
+  }
+
+  function updateMomentsUI() {
+    momentsEl.innerHTML = "";
+    if (!moments.length) {
+      const e = document.createElement("div");
+      e.className = "empty";
+      e.textContent = "no goals detected in this clip";
+      momentsEl.appendChild(e);
+      return;
+    }
+    for (const m of moments) {
+      const b = document.createElement("button");
+      b.className = "mom";
+      const mm = Math.floor(m.t / 60);
+      const ss = Math.round(m.t % 60);
+      b.innerHTML =
+        `<div>Goal · ${m.team ?? "?"}</div>` +
+        `<div class="t">${mm}:${String(ss).padStart(2, "0")}</div>`;
+      b.addEventListener("click", () => playMoment(m));
+      momentsEl.appendChild(b);
+    }
+  }
+
+  function playMoment(m) {
+    moment = m;
+    momentActive = true;
+    const endFrame = Math.min(m.endFrame, replay.frameCount - 1);
+    momentEnd = replay.frames[endFrame]?.t ?? replay.duration;
+    momentSpeed = Number(speedSel.value) || 1;
+    const startT = replay.frames[m.startFrame]?.t ?? 0;
+    replay.seekFraction(replay.duration > 0 ? startT / replay.duration : 0);
+    replay.setSpeed(0.4);
+    replay.playing = true;
+    playBtn.textContent = "Pause";
+    selectedId = null;
+    lastScorer = null;
+    rig.setMode("scorecam");
+    camSel.value = "scorecam";
+    flashStatus(`score moment — ${m.team ?? ""} goal`);
+  }
+
+  function exitMoment(keepCam) {
+    if (!momentActive) {
+      moment = null;
+      return;
+    }
+    momentActive = false;
+    moment = null;
+    replay?.setSpeed(momentSpeed);
+    if (!keepCam) {
+      rig.setMode("broadcast");
+      camSel.value = "broadcast";
+    }
   }
 
   window.addEventListener("resize", () => {
@@ -220,6 +287,23 @@ async function main() {
           ball,
           facing: sel.facing,
         });
+      }
+    }
+
+    if (momentActive && moment) {
+      const scorer =
+        moment.scorerId != null ? st.players.find((p) => p.id === moment.scorerId) : null;
+      if (scorer) {
+        const ball =
+          st.ball && st.ball.tracked !== false ? { x: st.ball.x, z: st.ball.z } : null;
+        lastScorer = { px: scorer.x, pz: scorer.z, facing: scorer.facing ?? 0, ball };
+      }
+      if (lastScorer) rig.setScoreTarget(lastScorer);
+      if (replay.t >= momentEnd) {
+        replay.playing = false;
+        playBtn.textContent = "Play";
+        exitMoment(false);
+        flashStatus("end of moment");
       }
     }
 
