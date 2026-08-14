@@ -30,8 +30,10 @@ def train(
     patience: int = PATIENCE,
     device: int | str = 0,
     resume: bool = False,
+    lr0: float = 0.01,
+    name: str = WEIGHTS_DIR.name,
 ) -> Any:
-    """Train the detector. Weights land at ``runs/detect/football-detect/``."""
+    """Train the detector. Weights land at ``runs/detect/<name>/``."""
     from ultralytics import YOLO
 
     if resume:
@@ -46,8 +48,9 @@ def train(
         imgsz=imgsz,
         patience=patience,
         device=device,
+        lr0=lr0,
         project=str(WEIGHTS_DIR.parent),
-        name=WEIGHTS_DIR.name,
+        name=name,
         exist_ok=True,
         amp=True,  # mixed precision — halves VRAM, essential on 4 GB
         pretrained=True,
@@ -66,6 +69,8 @@ def main() -> None:
     p.add_argument("--patience", type=int, default=PATIENCE)
     p.add_argument("--device", default="0")
     p.add_argument("--resume", action="store_true")
+    p.add_argument("--lr0", type=float, default=0.01)
+    p.add_argument("--name", default=WEIGHTS_DIR.name)
     args = p.parse_args()
 
     results = train(
@@ -77,6 +82,8 @@ def main() -> None:
         patience=args.patience,
         device=args.device,
         resume=args.resume,
+        lr0=args.lr0,
+        name=args.name,
     )
     print(f"\nDone. Best weights: {BEST_WEIGHTS}")
     print(f"Results: {results}")

@@ -93,14 +93,16 @@ def run(
     device: int | str = 0,
     length_m: float = DEFAULT_LENGTH_M,
     width_m: float = DEFAULT_WIDTH_M,
+    detect_weights: str | Path | None = None,
 ) -> dict:
     """Process ``video`` -> a validated v1 JSON at ``out``."""
+    detect_weights = Path(detect_weights) if detect_weights else DET_WEIGHTS
     cap = cv2.VideoCapture(str(video))
     if not cap.isOpened():
         raise SystemExit(f"could not open video: {video}")
     fps = cap.get(cv2.CAP_PROP_FPS) or 25.0
 
-    tracker = Tracker(detector_weights=DET_WEIGHTS, device=device)
+    tracker = Tracker(detector_weights=detect_weights, device=device)
     # Dedicated ball model if trained; otherwise fall back to the player
     # detector's weak ball class.
     if BALL_WEIGHTS.exists():
@@ -110,7 +112,7 @@ def run(
         ball_det = None
     else:
         ball_model = None
-        ball_det = Detector(weights=DET_WEIGHTS, device=device, conf=0.15)
+        ball_det = Detector(weights=detect_weights, device=device, conf=0.15)
     kp_det = PitchKeypointDetector(weights=KP_WEIGHTS, device=device)
     cal = Calibrator(smoothing_alpha=0.7)
     seg = SceneSegmentor()
@@ -332,6 +334,7 @@ def main() -> None:
     p.add_argument("--device", default="0")
     p.add_argument("--length-m", type=float, default=DEFAULT_LENGTH_M)
     p.add_argument("--width-m", type=float, default=DEFAULT_WIDTH_M)
+    p.add_argument("--detect-weights", default=None)
     args = p.parse_args()
     run(
         video=args.video,
@@ -342,6 +345,7 @@ def main() -> None:
         device=args.device,
         length_m=args.length_m,
         width_m=args.width_m,
+        detect_weights=args.detect_weights,
     )
 
 
