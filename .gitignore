@@ -22,6 +22,7 @@ viewer/.vite/
 viewer/public/sample.json
 viewer/public/clips/
 viewer/public/clips.json
+viewer/smoke.png
 node_modules/
 
 # --- Data (large / regeneratable, never committed) ---
