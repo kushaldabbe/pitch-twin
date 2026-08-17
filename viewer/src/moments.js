@@ -10,8 +10,10 @@ const SAVE_GK_R = 3.0;
 const RUN_SPEED = 5.0;
 const RUN_MIN_SEC = 1.0;
 const RUN_MIN_DIST = 8.0;
+const GOAL_MOUTH = 7.0; // goal-mouth tolerance: crossing z is noisy in the data
+const GOAL_SEPARATION = 20; // seconds between distinct goals
 
-export function detectMoments(data, { before = 12, after = 5, goalMouth = 7, topK = 15 } = {}) {
+export function detectMoments(data, { before = 12, after = 5, topK = 15 } = {}) {
   const frames = data.frames ?? [];
   const fps = data.source?.fps ?? 25;
   const halfL = (data.pitch?.length_m ?? 105) / 2;
@@ -20,7 +22,7 @@ export function detectMoments(data, { before = 12, after = 5, goalMouth = 7, top
   const sig = computeSignals(frames, fps, halfL);
   const events = [];
 
-  events.push(...detectGoals(frames, sig, fps, halfL, goalMouth));
+  events.push(...detectGoals(frames, sig, fps, halfL));
   events.push(...detectShots(frames, sig, fps, halfL));
   events.push(...detectSaves(frames, sig, fps));
   events.push(...detectTackles(frames, sig, fps));
@@ -109,14 +111,14 @@ function cluster(indices, gap) {
   return out;
 }
 
-function detectGoals(frames, sig, fps, halfL, goalMouth) {
+function detectGoals(frames, sig, fps, halfL) {
+  // Candidate frames: ball over the line, within the real goal mouth.
   const goalFrames = [];
   for (let i = 0; i < frames.length; i++) {
     if (
       sig.ballX[i] != null &&
       Math.abs(sig.ballX[i]) >= halfL &&
-      Math.abs(sig.ballZ[i]) <= goalMouth &&
-      wasApproaching(sig, i, fps)
+      Math.abs(sig.ballZ[i]) <= GOAL_MOUTH
     ) {
       goalFrames.push(i);
     }
@@ -125,16 +127,45 @@ function detectGoals(frames, sig, fps, halfL, goalMouth) {
   for (const cl of cluster(goalFrames, Math.round(2 * fps))) {
     let peak = cl[0];
     for (const idx of cl) if (Math.abs(sig.ballX[idx]) > Math.abs(sig.ballX[peak])) peak = idx;
+    if (!plausibleGoal(sig, cl[0], peak, fps, halfL)) continue;
     const scorer = lastToucher(frames, sig, peak, fps, 1.5);
     events.push({
       type: "goal",
       peakFrame: peak,
+      depth: Math.abs(sig.ballX[peak]),
       playerId: scorer?.id ?? null,
       team: scorer?.team ?? null,
       score: 100,
     });
   }
-  return events;
+  // Keep goals apart: within GOAL_SEPARATION seconds only the deepest survives.
+  const kept = [];
+  for (const e of events.slice().sort((a, b) => b.depth - a.depth || a.peakFrame - b.peakFrame)) {
+    if (kept.some((k) => Math.abs(frames[k.peakFrame].t - frames[e.peakFrame].t) < GOAL_SEPARATION)) {
+      continue;
+    }
+    kept.push(e);
+  }
+  return kept.sort((a, b) => a.peakFrame - b.peakFrame);
+}
+
+// A goal must arrive from inside the pitch moving toward the goal. Teleport
+// spikes (ball smooth in midfield, one frame over the line) and balls already
+// rolling behind the goal line fail this check; the noisy one-frame crossings
+// of real goals pass it.
+function plausibleGoal(sig, firstIdx, peakIdx, fps, halfL) {
+  const side = sig.ballX[peakIdx] > 0 ? 1 : -1;
+  const back = Math.round(0.9 * fps);
+  let approach = 0;
+  let toward = 0;
+  for (let k = Math.max(0, firstIdx - back); k < firstIdx; k++) {
+    const x = sig.ballX[k];
+    const z = sig.ballZ[k];
+    if (x == null) continue;
+    if (Math.abs(x) < halfL && Math.hypot(x - side * halfL, z) < 35) approach++;
+    if ((x - side * halfL) * side < 0) toward++;
+  }
+  return approach >= 2 && toward >= 1;
 }
 
 function detectShots(frames, sig, fps, halfL) {
@@ -173,13 +204,6 @@ function recentHolder(sig, idx, fps, sec = 0.6) {
     if (sig.holderId[k] != null) return { id: sig.holderId[k], team: sig.holderTeam[k] };
   }
   return null;
-}
-
-function wasApproaching(sig, idx, fps, sec = 1.0) {
-  for (let k = Math.max(0, idx - Math.round(sec * fps)); k < idx; k++) {
-    if (sig.ballTowardGoal[k]) return true;
-  }
-  return false;
 }
 
 function hadRecentHolder(sig, idx, fps, sec = 0.6) {
